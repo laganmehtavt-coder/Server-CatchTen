@@ -146,6 +146,17 @@ socketServer.on("connection", socket => {
         socket.to(roomID).emit("roundComplete", { roundIndex });
     });
 
+
+    // ---------------------- Health Check API ----------------------
+server.on('request', (req, res) => {
+    if (req.url === '/health') {   // check this endpoint
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', message: 'Server is running!' }));
+    } else {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Not Found');
+    }
+});
     // Player ready event
     socket.on("playerReady", ({ roomID }) => {
         if (!rooms[roomID]) return;
