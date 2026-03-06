@@ -1,0 +1,27 @@
+{
+  "name": "server-catchten",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/laganmehtavt-coder/Server-CatchTen.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/laganmehtavt-coder/Server-CatchTen/issues"
+  },
+  "homepage": "https://github.com/laganmehtavt-coder/Server-CatchTen#readme",
+  "dependencies": {
+    "socket.io": "^4.8.3",
+    "uuid": "^13.0.0",
+    "ws": "^8.19.0"
+  }
+}
