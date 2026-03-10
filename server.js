@@ -70,6 +70,17 @@ socketServer.on("connection", socket => {
         }
         sendUniquePlayerList(roomID);
     });
+    // --- Game Started by Host ---
+socket.on("gameStarted", ({ roomID }) => {
+    if (!rooms[roomID]) return;
+    
+    const room = rooms[roomID];
+    room.gameStarted = true;
+    console.log(`${colors.magenta}${getTimestamp()}${colors.reset} ${colors.cyan}[ROOM:${roomID}]${colors.reset} 🎮 Game STARTED by host`);
+
+    // Notify all clients in the room (including host)
+    socketServer.to(roomID).emit("gameStarted");
+});
 
     // --- Card Dealt ---
     socket.on("cardDealt", ({ roomID, card }) => {
