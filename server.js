@@ -55,7 +55,12 @@ socketServer.on("connection", socket => {
     // --- Create Room ---
     socket.on("createRoom", ({ name }) => {
         let roomID = Math.random().toString(36).substr(2, 9);
-        rooms[roomID] = { players: [{ id: socket.id, name: name || "Guest", isHost: true }], gameStarted: false, cardHistory: [] };
+        rooms[roomID] = { 
+            players: [{ id: socket.id, name: name || "Guest", isHost: true }], 
+            gameStarted: false, 
+            cardHistory: [],
+            rounds: []
+        };
         socket.join(roomID);
         socket.emit("roomCreated", { roomID });
         sendUniquePlayerList(roomID);
@@ -70,31 +75,50 @@ socketServer.on("connection", socket => {
         }
         sendUniquePlayerList(roomID);
     });
+
     // --- Game Started by Host ---
-socket.on("gameStarted", ({ roomID }) => {
-    if (!rooms[roomID]) return;
-    
-    const room = rooms[roomID];
-    room.gameStarted = true;
-    console.log(`${colors.magenta}${getTimestamp()}${colors.reset} ${colors.cyan}[ROOM:${roomID}]${colors.reset} 🎮 Game STARTED by host`);
-
-    // Notify all clients in the room (including host)
-    socketServer.to(roomID).emit("gameStarted");
-});
-
-    // --- Card Dealt ---
-    socket.on("cardDealt", ({ roomID, card }) => {
+    socket.on("gameStarted", ({ roomID }) => {
         if (!rooms[roomID]) return;
-        logCard('🎴 CARD DEALT:', card, roomID);
-        rooms[roomID].cardHistory.push({ timestamp: new Date().toISOString(), card: card, dealtBy: socket.id });
-        socket.to(roomID).emit("cardDealt", card);
+        const room = rooms[roomID];
+        room.gameStarted = true;
+        console.log(`${colors.magenta}${getTimestamp()}${colors.reset} ${colors.cyan}[ROOM:${roomID}]${colors.reset} 🎮 Game STARTED by host`);
+
+        // Notify all clients in the room
+        socketServer.to(roomID).emit("gameStarted");
     });
 
     // --- Round Start ---
     socket.on("roundStart", ({ roomID, roundIndex, roundConfig }) => {
         if (!rooms[roomID]) return;
+        const room = rooms[roomID];
+        if (!room.rounds[roundIndex]) room.rounds[roundIndex] = { tableCards: [], playerCards: {} };
+
         logRound('🔴 ROUND STARTED', roomID, roundIndex, `(Table: ${roundConfig.tableCards} cards, Player: ${roundConfig.playerCardsEach} cards each)`);
-        socket.to(roomID).emit("roundStart", { roundIndex, roundConfig });
+
+        socketServer.to(roomID).emit("roundStart", { roundIndex, roundConfig });
+    });
+
+    // --- Card Dealt (HOST ONLY) ---
+    socket.on("cardDealt", ({ roomID, card }) => {
+        if (!rooms[roomID]) return;
+        const room = rooms[roomID];
+
+        logCard('🎴 CARD DEALT:', card, roomID);
+        room.cardHistory.push({ timestamp: new Date().toISOString(), card, dealtBy: socket.id });
+
+        // Save card per round
+        if (card.isTableCard) {
+            if (!room.rounds[card.roundIndex]) room.rounds[card.roundIndex] = { tableCards: [], playerCards: {} };
+            room.rounds[card.roundIndex].tableCards.push(card);
+        } else {
+            if (!room.rounds[card.roundIndex]) room.rounds[card.roundIndex] = { tableCards: [], playerCards: {} };
+            if (!room.rounds[card.roundIndex].playerCards[card.targetPlayerID]) 
+                room.rounds[card.roundIndex].playerCards[card.targetPlayerID] = [];
+            room.rounds[card.roundIndex].playerCards[card.targetPlayerID].push(card);
+        }
+
+        // Broadcast to all clients EXCEPT sender
+        socket.to(roomID).emit("cardDealt", card);
     });
 
     // --- Round Complete ---
