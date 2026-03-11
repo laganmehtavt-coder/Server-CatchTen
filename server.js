@@ -2,14 +2,15 @@ const http = require('http');
 const io = require('socket.io');
 
 const server = http.createServer((req, res) => {
-    // ---------------------- Health Check API ----------------------
+
     if (req.url === '/health') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ status: 'ok', message: 'Server is running!' }));
     } else {
-        res.writeHead(404, { 'Content-Type': 'text/plain' });
-        res.end('Not Found');
+        res.writeHead(404);
+        res.end();
     }
+
 });
 
 const socketServer = io(server, {
@@ -18,142 +19,194 @@ const socketServer = io(server, {
 
 let rooms = {};
 
-// ---------------------- Helper Functions ----------------------
-function getTimestamp() {
-    const now = new Date();
-    return `[${now.toLocaleTimeString()}.${now.getMilliseconds()}]`;
+function time() {
+    return new Date().toLocaleTimeString();
 }
 
-const colors = {
-    reset: '\x1b[0m', bright: '\x1b[1m', dim: '\x1b[2m',
-    red: '\x1b[31m', green: '\x1b[32m', yellow: '\x1b[33m',
-    blue: '\x1b[34m', magenta: '\x1b[35m', cyan: '\x1b[36m', white: '\x1b[37m'
-};
-
-function logCard(message, card, roomID) {
-    console.log(`${colors.green}${getTimestamp()}${colors.reset} ${colors.cyan}[ROOM:${roomID}]${colors.reset} ${colors.yellow}${message}${colors.reset}`);
-    console.log(`${colors.dim}  ├─ Card ID: ${colors.white}${card.cardID || 'N/A'}${colors.reset}`);
-    console.log(`${colors.dim}  ├─ Sprite: ${colors.white}${card.spriteName || 'N/A'}${colors.reset}`);
-    console.log(`${colors.dim}  ├─ Value: ${colors.white}${card.value || 'N/A'}${colors.reset}`);
-    console.log(`${colors.dim}  ├─ Suit: ${colors.white}${card.suit || 'N/A'}${colors.reset}`);
-    console.log(`${colors.dim}  ├─ Type: ${colors.white}${card.isTableCard ? 'TABLE CARD' : 'PLAYER CARD'}${colors.reset}`);
-    if (!card.isTableCard) {
-        console.log(`${colors.dim}  └─ Target Player: ${colors.white}${card.targetPlayerID || 'N/A'}${colors.reset}`);
-    } else {
-        console.log(`${colors.dim}  └─ Table Card Index: ${colors.white}${card.cardIndex || 'N/A'}${colors.reset}`);
-    }
-}
-
-function logRound(message, roomID, roundIndex, details = '') {
-    console.log(`${colors.blue}${getTimestamp()}${colors.reset} ${colors.cyan}[ROOM:${roomID}]${colors.reset} ${colors.magenta}${message}${colors.reset} Round: ${colors.bright}${roundIndex}${colors.reset} ${details}`);
-}
-
-// ---------------------- Socket.IO Logic ----------------------
 socketServer.on("connection", socket => {
-    console.log(`${colors.green}${getTimestamp()}${colors.reset} ${colors.bright}Client connected:${colors.reset}`, socket.id);
 
-    // --- Create Room ---
+    console.log(time(), "Client Connected:", socket.id);
+
+    // ---------------- CREATE ROOM ----------------
     socket.on("createRoom", ({ name }) => {
+
         let roomID = Math.random().toString(36).substr(2, 9);
-        rooms[roomID] = { 
-            players: [{ id: socket.id, name: name || "Guest", isHost: true }], 
-            gameStarted: false, 
-            cardHistory: [],
+
+        rooms[roomID] = {
+            players: [{ id: socket.id, name: name || "Guest", isHost: true }],
+            gameStarted: false,
             rounds: []
         };
+
         socket.join(roomID);
+
         socket.emit("roomCreated", { roomID });
-        sendUniquePlayerList(roomID);
+
+        sendPlayerList(roomID);
+
     });
 
-    // --- Join Room ---
+    // ---------------- JOIN ROOM ----------------
     socket.on("joinRoom", ({ roomID, name }) => {
-        if (!rooms[roomID]) { socket.emit("errorMsg", { message: "Room not found" }); return; }
-        if (!rooms[roomID].players.find(p => p.id === socket.id)) {
-            rooms[roomID].players.push({ id: socket.id, name: name || "Guest", isHost: false });
-            socket.join(roomID);
-        }
-        sendUniquePlayerList(roomID);
-    });
 
-    // --- Game Started by Host ---
-    socket.on("gameStarted", ({ roomID }) => {
-        if (!rooms[roomID]) return;
-        const room = rooms[roomID];
-        room.gameStarted = true;
-        console.log(`${colors.magenta}${getTimestamp()}${colors.reset} ${colors.cyan}[ROOM:${roomID}]${colors.reset} 🎮 Game STARTED by host`);
-
-        // Notify all clients in the room
-        socketServer.to(roomID).emit("gameStarted");
-    });
-
-    // --- Round Start ---
-    socket.on("roundStart", ({ roomID, roundIndex, roundConfig }) => {
-        if (!rooms[roomID]) return;
-        const room = rooms[roomID];
-        if (!room.rounds[roundIndex]) room.rounds[roundIndex] = { tableCards: [], playerCards: {} };
-
-        logRound('🔴 ROUND STARTED', roomID, roundIndex, `(Table: ${roundConfig.tableCards} cards, Player: ${roundConfig.playerCardsEach} cards each)`);
-
-        socketServer.to(roomID).emit("roundStart", { roundIndex, roundConfig });
-    });
-
-    // --- Card Dealt (HOST ONLY) ---
-    socket.on("cardDealt", ({ roomID, card }) => {
-        if (!rooms[roomID]) return;
-        const room = rooms[roomID];
-
-        logCard('🎴 CARD DEALT:', card, roomID);
-        room.cardHistory.push({ timestamp: new Date().toISOString(), card, dealtBy: socket.id });
-
-        // Save card per round
-        if (card.isTableCard) {
-            if (!room.rounds[card.roundIndex]) room.rounds[card.roundIndex] = { tableCards: [], playerCards: {} };
-            room.rounds[card.roundIndex].tableCards.push(card);
-        } else {
-            if (!room.rounds[card.roundIndex]) room.rounds[card.roundIndex] = { tableCards: [], playerCards: {} };
-            if (!room.rounds[card.roundIndex].playerCards[card.targetPlayerID]) 
-                room.rounds[card.roundIndex].playerCards[card.targetPlayerID] = [];
-            room.rounds[card.roundIndex].playerCards[card.targetPlayerID].push(card);
+        if (!rooms[roomID]) {
+            socket.emit("errorMsg", { message: "Room not found" });
+            return;
         }
 
-        // Broadcast to all clients EXCEPT sender
-        socket.to(roomID).emit("cardDealt", card);
+        const room = rooms[roomID];
+
+        room.players.push({
+            id: socket.id,
+            name: name || "Guest",
+            isHost: false
+        });
+
+        socket.join(roomID);
+
+        sendPlayerList(roomID);
+
     });
 
-    // --- Round Complete ---
-    socket.on("roundComplete", ({ roomID, roundIndex }) => {
-        if (!rooms[roomID]) return;
-        logRound('✅ ROUND COMPLETE', roomID, roundIndex);
-        socket.to(roomID).emit("roundComplete", { roundIndex });
-    });
+    // ---------------- PLAYER LIST ----------------
+    function sendPlayerList(roomID) {
 
-    // --- Player Ready ---
-    socket.on("playerReady", ({ roomID }) => {
-        if (!rooms[roomID]) return;
-        const player = rooms[roomID].players.find(p => p.id === socket.id);
-        if (player) { player.isReady = true; sendUniquePlayerList(roomID); }
-    });
+        const room = rooms[roomID];
+        if (!room) return;
 
-    // --- Disconnect ---
-    socket.on("disconnect", () => {
-        for (const roomID in rooms) {
-            const room = rooms[roomID];
-            room.players = room.players.filter(p => p.id !== socket.id);
-            if (room.players.length === 0) delete rooms[roomID];
-            else sendUniquePlayerList(roomID);
-        }
-    });
+        const list = room.players.map((p, i) => ({
+            id: p.id,
+            name: p.name,
+            isHost: i === 0,
+            isReady: p.isReady || false
+        }));
 
-    // --- Helper: Send Player List ---
-    function sendUniquePlayerList(roomID) {
-        const room = rooms[roomID]; if (!room) return;
-        const playersList = room.players.map((p, i) => ({ id: p.id, name: p.name, isReady: p.isReady || false, isHost: i === 0 }));
-        socketServer.to(roomID).emit("playerList", { players: playersList });
+        socketServer.to(roomID).emit("playerList", { players: list });
+
     }
+
+    // ---------------- GAME START ----------------
+    socket.on("gameStarted", ({ roomID }) => {
+
+        if (!rooms[roomID]) return;
+
+        rooms[roomID].gameStarted = true;
+
+        console.log(time(), "Game Started:", roomID);
+
+        socketServer.to(roomID).emit("gameStarted");
+
+    });
+
+    // ---------------- ROUND START ----------------
+    socket.on("roundStart", ({ roomID, roundIndex, roundConfig }) => {
+
+        if (!rooms[roomID]) return;
+
+        console.log(time(), "Round Start:", roundIndex);
+
+        socketServer.to(roomID).emit("roundStart", {
+            roundIndex,
+            roundConfig
+        });
+
+    });
+
+    // ---------------- CARD DEALT ----------------
+    socket.on("cardDealt", ({ roomID, card }) => {
+
+        if (!rooms[roomID]) return;
+
+        socket.to(roomID).emit("cardDealt", card);
+
+    });
+
+    // ---------------- PLAY CARD REQUEST ----------------
+    socket.on("playCardRequest", ({ roomID, playerID, value, suit }) => {
+
+        if (!rooms[roomID]) return;
+
+        const room = rooms[roomID];
+
+        const host = room.players.find(p => p.isHost);
+
+        if (!host) return;
+
+        console.log(time(), "Play Card Request:", value, suit);
+
+        socketServer.to(host.id).emit("playCardRequest", {
+            playerID,
+            value,
+            suit
+        });
+
+    });
+
+    // ---------------- CARD PLAYED CONFIRM ----------------
+    socket.on("cardPlayed", ({ roomID, playerID, value, suit }) => {
+
+        if (!rooms[roomID]) return;
+
+        console.log(time(), "Card Played:", value, suit);
+
+        socketServer.to(roomID).emit("cardPlayed", {
+            playerID,
+            value,
+            suit
+        });
+
+    });
+
+    // ---------------- ROUND COMPLETE ----------------
+    socket.on("roundComplete", ({ roomID, roundIndex }) => {
+
+        if (!rooms[roomID]) return;
+
+        console.log(time(), "Round Complete:", roundIndex);
+
+        socketServer.to(roomID).emit("roundComplete", {
+            roundIndex
+        });
+
+    });
+
+    // ---------------- PLAYER READY ----------------
+    socket.on("playerReady", ({ roomID }) => {
+
+        if (!rooms[roomID]) return;
+
+        const player = rooms[roomID].players.find(p => p.id === socket.id);
+
+        if (player) player.isReady = true;
+
+        sendPlayerList(roomID);
+
+    });
+
+    // ---------------- DISCONNECT ----------------
+    socket.on("disconnect", () => {
+
+        for (const roomID in rooms) {
+
+            const room = rooms[roomID];
+
+            room.players = room.players.filter(p => p.id !== socket.id);
+
+            if (room.players.length === 0)
+                delete rooms[roomID];
+            else
+                sendPlayerList(roomID);
+
+        }
+
+        console.log(time(), "Client Disconnected:", socket.id);
+
+    });
+
 });
 
-// ---------------------- Start Server ----------------------
 server.listen(3000, () => {
-    console.log(`${colors.green}${getTimestamp()}${colors.reset} 🚀 Server running on port 3000`);
+
+    console.log("Server running on port 3000");
+
 });
