@@ -37,6 +37,7 @@ function logCard(card, roomID) {
 
     console.log(`${colors.green}${getTimestamp()}${colors.reset} ${colors.cyan}[ROOM:${roomID}]${colors.reset} CARD → ID: ${cardID}, Target: ${targetPlayer}, Table: ${isTable}`);
 }
+
 io.on("connection", socket => {
     console.log(`${colors.green}${getTimestamp()} Client connected: ${socket.id}${colors.reset}`);
 
@@ -46,6 +47,7 @@ io.on("connection", socket => {
         rooms[roomID] = { players: [{ id: socket.id, name, isHost: true }], gameStarted: false };
         socket.join(roomID);
         socket.emit("roomCreated", { roomID });
+        console.log(`${colors.green}${getTimestamp()} [ROOM:${roomID}] Created by ${name}${colors.reset}`);
     });
 
     // Join Room
@@ -57,32 +59,37 @@ io.on("connection", socket => {
             socket.join(rID);
         }
         io.to(rID).emit("playerList", { players: rooms[rID].players });
+        console.log(`${colors.green}${getTimestamp()} [ROOM:${rID}] ${name} joined${colors.reset}`);
     });
 
-    // Card Dealt from Host
-    socket.on("cardDealt", ({ roomID, targetPlayerID, cardID, isTableCard }) => {
+    // Game Started by Host
+    socket.on("gameStarted", ({ roomID }) => {
         const rID = roomID?.toUpperCase();
         if (!rID || !rooms[rID]) return;
+        rooms[rID].gameStarted = true;
+        console.log(`${colors.green}${getTimestamp()} [ROOM:${rID}] Game started by host${colors.reset}`);
+        // Broadcast to all clients in the room
+        io.to(rID).emit("gameStarted");
+    });
 
-        const card = { targetPlayerID, cardID, isTableCard };
+    // Card Dealt (Host only) – forward full object
+    socket.on("cardDealt", ({ roomID, card }) => {
+        const rID = roomID?.toUpperCase();
+        if (!rID || !rooms[rID]) return;
         logCard(card, rID);
-
         // Broadcast to other clients
         socket.to(rID).emit("cardDealt", card);
     });
 
-    // Shuffle Event
-  
-    // Shuffle Event
-socket.on("hostShuffle", ({ roomID }) => {
-    const rID = roomID?.toUpperCase();
-    if (!rID || !rooms[rID]) return;
+    // Host Shuffle
+    socket.on("hostShuffle", ({ roomID }) => {
+        const rID = roomID?.toUpperCase();
+        if (!rID || !rooms[rID]) return;
+        console.log(`${colors.green}${getTimestamp()} [ROOM:${rID}] Host triggered shuffle${colors.reset}`);
+        socket.to(rID).emit("hostShuffle");
+    });
 
-    console.log(`${colors.green}${getTimestamp()} [ROOM:${rID}] Host triggered shuffle${colors.reset}`);
-    
-    // Broadcast to other clients
-    socket.to(rID).emit("hostShuffle");
-});
+    // Disconnect
     socket.on("disconnect", () => {
         for (const rID in rooms) {
             const room = rooms[rID];
